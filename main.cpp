@@ -25,7 +25,7 @@
  */
  
  #define F_CPU 8000000UL  // 8 MHz
-//#include <util/delay.h>
+#include <util/delay.h>
 
 #include <avr/io.h>
 //#include <avr/interrupt.h>
@@ -35,6 +35,67 @@
 #include <stdint.h>
 
 #include "bitop.h"
+#include "pwm.h"
+#include "random32.h"
+
+#define RED_START 0
+#define YELLOW_START 0
+
+avr_cpp_lib::pwm_channel pwm_data[30] = {
+	// rdece ledice
+	{&DDRB, &PORTB, PB4, RED_START}, // R4
+	{&DDRA, &PORTA, PA2, RED_START}, // R5
+	{&DDRA, &PORTA, PA3, RED_START}, // R1
+	{&DDRA, &PORTA, PA5, RED_START}, // R6
+	{&DDRA, &PORTA, PA7, RED_START}, // R2
+	{&DDRC, &PORTC, PC6, RED_START}, // R7
+	{&DDRB, &PORTB, PB0, RED_START}, // R8
+	{&DDRB, &PORTB, PB1, RED_START}, // R12
+	{&DDRD, &PORTD, PD7, RED_START}, // R11
+	{&DDRD, &PORTD, PD5, RED_START}, // R3
+	{&DDRD, &PORTD, PD3, RED_START}, // R10
+	{&DDRD, &PORTD, PD1, RED_START}, // R9
+
+	// rumene ledice
+	{&DDRB, &PORTB, PB3, YELLOW_START}, // Y4
+	{&DDRA, &PORTA, PA1, YELLOW_START}, // Y5
+	{&DDRC, &PORTC, PC0, YELLOW_START}, // Y1
+	{&DDRA, &PORTA, PA4, YELLOW_START}, // Y6
+	{&DDRA, &PORTA, PA6, YELLOW_START}, // Y2
+	{&DDRC, &PORTC, PC7, YELLOW_START}, // Y7
+	{&DDRB, &PORTB, PB2, YELLOW_START}, // Y8
+	{&DDRC, &PORTC, PC1, YELLOW_START}, // Y12
+	{&DDRD, &PORTD, PD6, YELLOW_START}, // Y11
+	{&DDRD, &PORTD, PD4, YELLOW_START}, // Y3
+	{&DDRD, &PORTD, PD2, YELLOW_START}, // Y10
+	{&DDRD, &PORTD, PD0, YELLOW_START}, // Y9
+
+	PWM_CHANNEL_END
+};
+	
+avr_cpp_lib::pwm_worker pwm(pwm_data);
+
+void update_values() {
+	//	for (uint8_t x = 0; x < 24; x++) {
+	static uint8_t x = 0;
+	static uint8_t intensity = 0;
+	intensity++;
+	if (intensity == 0) {
+		x ++;
+		if (x == 12) {
+			x = 0;
+		}
+	}
+
+	uint8_t color = 100;
+
+	uint16_t tmp = color * intensity;
+	tmp /= 255;
+
+	pwm_data[x].value = tmp;
+	pwm_data[x+12].value = intensity - tmp;
+	//}
+}
 
 int main() {
 	// init
@@ -43,5 +104,24 @@ int main() {
 	// enable interrupts
 	//sei();
 
-	for (;;);
+
+	// count pwm cycle
+	uint8_t i = 0;
+	uint16_t c = 100;
+
+	update_values();
+
+	for (;;) {
+
+		pwm.cycle(i);
+		i++;
+
+		c--;
+		if (c== 0) {
+			update_values();
+			//c = get_random32(5)*1000 + 5000;
+			c = 100;
+		}
+
+	}
 }
