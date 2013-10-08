@@ -1,2 +1,2 @@
-avr-base
+avr-campfire
 ========
