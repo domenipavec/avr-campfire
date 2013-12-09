@@ -28,7 +28,7 @@
 #include <util/delay.h>
 
 #include <avr/io.h>
-//#include <avr/interrupt.h>
+#include <avr/interrupt.h>
 //#include <avr/pgmspace.h>
 //#include <avr/eeprom.h> 
 
@@ -37,11 +37,16 @@
 #include "bitop.h"
 #include "pwm.h"
 #include "random32.h"
+#include "exponential.h"
 
-#define RED_START 10
-#define YELLOW_START 10
+using namespace avr_cpp_lib;
 
-avr_cpp_lib::pwm_channel pwm_data[30] = {
+#define ADMUX_SET 0b01100000
+
+#define RED_START 0
+#define YELLOW_START 0
+
+pwm_channel pwm_data[25] = {
 	// rdece ledice
 	{&DDRB, &PORTB, PB3, RED_START}, // R4
 	{&DDRB, &PORTB, PB5, RED_START}, // R5
@@ -73,48 +78,31 @@ avr_cpp_lib::pwm_channel pwm_data[30] = {
 	PWM_CHANNEL_END
 };
 	
-avr_cpp_lib::pwm_worker pwm(pwm_data);
+pwm_worker pwm(pwm_data);
 
 void setLed(uint8_t x, uint8_t intensity, uint8_t color) {
 	uint16_t tmp = color * intensity;
-	tmp /= 255;
-
-	pwm_data[x].value = tmp;
-	pwm_data[x+12].value = intensity - tmp;
+	tmp >>= 8;
+	
+	pwm_data[x].value = exponential(tmp);
+	pwm_data[x+12].value = exponential(intensity - tmp);
 }
 
-#define INT_START 4
+#define INT_START 30
 
-uint8_t intensities[12] = {INT_START, INT_START, INT_START, INT_START, INT_START, INT_START,INT_START, INT_START, INT_START, INT_START, INT_START, INT_START};
+volatile uint8_t adc_channel = 0;
+volatile uint8_t color = 100;
+volatile uint8_t lightness = 100;
+volatile uint8_t speed = 100;
 
-void update_values() {
-	for (uint8_t x = 0; x < 12; x++) {
-		uint8_t color = 100;
-		if (color < 10) {
-			color = 10;
-		}
-		if (color > 245) {
-			color = 245;
-		}
-		color -= 10;
-		color += get_random32(21);
-		
-		uint8_t a = get_random32(2);
-		if (a == 0) {
-			if (intensities[x] < 128) {
-				intensities[x] <<= 1;
-			}
-		} else  if (a == 1){
-			if (intensities[x] > INT_START) {
-				intensities[x] >>= 1;
-			}
-		}
-
-		uint8_t lightness = ADCH;
-		uint16_t intensity = intensities[x] * lightness;
-		
-		setLed(x, intensity >> 7, color);
-	}
+void update_values(uint8_t x) {
+	uint16_t light = lightness;
+	light *= 3;
+	light >>= 2;
+	light += 30;
+	uint8_t intensity = 5 + (lightness>>3) + get_random32(light);
+	
+	setLed(x, intensity, color);
 }
 
 int main() {
@@ -125,28 +113,46 @@ int main() {
 	//sei();
 
 	// adc settings
-	ADMUX = 0b01100000;
-	ADCSRA = 0b11100111;
+	ADMUX = ADMUX_SET | adc_channel;
+	ADCSRA = 0b11101111;
 
 
 	// count pwm cycle
 	uint8_t i = 0;
 	uint16_t c = 5120;
 
-	update_values();
-
+	sei();
 
 	for (;;) {
 
 		pwm.cycle(i);
 		i++;
-
+		
+		
 		c--;
-		if (c== 0) {
-			uint8_t speed = 100;
-			update_values();
-			c = get_random32(speed>>3)*256 + 128*(speed>>1) + 1024;
+		if (c < 13) {
+			if (c == 0) {
+				c = 2000 + speed*30 + get_random32(1000 + speed*40);
+			} else {
+				update_values(c-1);
+			}
 		}
 
+	}
+}
+
+ISR(ADC_vect) {
+	adc_channel++;
+	if (adc_channel > 2) {
+		adc_channel = 0;
+	}
+	ADMUX = ADMUX_SET | adc_channel;
+
+	if (adc_channel == 0) {
+		color = ADCH;
+	} else if (adc_channel == 1) {
+		lightness = ADCH;
+	} else {
+		speed = ADCH;
 	}
 }
