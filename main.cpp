@@ -41,7 +41,7 @@
 
 using namespace avr_cpp_lib;
 
-#define ADMUX_SET 0b01100000
+static const uint8_t ADDRESS = 0x60;
 
 #define RED_START 0
 #define YELLOW_START 0
@@ -80,19 +80,25 @@ pwm_channel pwm_data[25] = {
 	
 pwm_worker pwm(pwm_data);
 
-void setLed(uint8_t x, uint8_t intensity, uint8_t color) {
-	uint16_t tmp = color * intensity;
-	tmp >>= 8;
-	
-	pwm_data[x].value = exponential(tmp);
-	pwm_data[x+12].value = exponential(intensity - tmp);
-}
-
 #define INT_START 30
 
 volatile uint8_t color = 128;
 volatile uint8_t lightness = 255;
 volatile uint8_t speed = 128;
+volatile bool power = false;
+
+void setLed(uint8_t x, uint8_t intensity, uint8_t color) {
+	if (power) {
+		uint16_t tmp = color * intensity;
+		tmp >>= 8;
+		
+		pwm_data[x].value = exponential(tmp);
+		pwm_data[x+12].value = exponential(intensity - tmp);
+	} else {
+		pwm_data[x].value = 0;
+		pwm_data[x+12].value = 0;
+	}
+}
 
 void update_values(uint8_t x) {
 	uint16_t light = lightness;
@@ -107,16 +113,16 @@ void update_values(uint8_t x) {
 int main() {
 	// init
 	
+	// i2c
+	TWCR = 0b01000101;
+	TWAR = ADDRESS<<1;
 	
 	// enable interrupts
-	//sei();
-
+	sei();
 
 	// count pwm cycle
 	uint8_t i = 0;
 	uint16_t c = 5120;
-
-	sei();
 
 	for (;;) {
 
@@ -134,4 +140,44 @@ int main() {
 		}
 
 	}
+}
+
+ISR(TWI_vect) {
+	static uint8_t state = 0;
+	static uint8_t command = 0;
+	switch (TWSR) {
+		case 0x60: // SLA+W
+			state = 0;
+			break;
+		case 0x80: // SLA+W + DATA
+			switch (state) {
+				case 0:
+					command = TWDR;
+					switch (command) {
+						case 0:
+							power = false;
+							break;
+						case 1:
+							power = true;
+							break;
+					}
+					break;
+				case 1:
+					switch (command) {
+						case 2:
+							color = TWDR;
+							break;
+						case 3:
+							lightness = TWDR;
+							break;
+						case 4:
+							speed = TWDR;
+							break;
+					}
+					break;
+			}
+			state++;
+			break;
+	}
+	SETBIT(TWCR, TWINT);
 }
